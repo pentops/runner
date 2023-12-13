@@ -51,17 +51,21 @@ func NewGroup(options ...option) *Group {
 	return gg
 }
 
-func (gg *Group) Add(name string, f func(ctx context.Context) error) error {
+func (gg *Group) Add(name string, f func(ctx context.Context) error) {
 	if gg.triggered {
-		return fmt.Errorf("cannot add runners after the group is triggered")
+		// attempting both before and after the lock. not strictly thread
+		// *safe* but all of the ways this can unfold will sort of work anyway.
+		// The worst case is that the panic is not triggered and the function
+		// which calls this will block waiting for the mutex until the rungroup
+		// exits, THEN panic.
+		panic("cannot add runners after the group is triggered")
 	}
 	gg.controlMutex.Lock()
 	defer gg.controlMutex.Unlock()
 	if gg.triggered {
-		return fmt.Errorf("cannot add runners after the group is triggered")
+		panic("cannot add runners after the group is triggered")
 	}
 	gg.runners = append(gg.runners, &runner{name: name, f: f})
-	return nil
 }
 
 // Run runs the runners in the group until all have exited.
