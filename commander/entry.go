@@ -19,6 +19,10 @@ func NewCommand[F any, E any](callback func(context.Context, F, E) error) *Comma
 	return &Command[F, E]{Callback: callback}
 }
 
+func (cc *Command[F, E]) Help() string {
+	return "//todo"
+}
+
 func (cc *Command[F, E]) Run(ctx context.Context, args []string) error {
 	flagConfig := new(F)
 	envConfig := new(E)
