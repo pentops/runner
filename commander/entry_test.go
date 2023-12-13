@@ -83,6 +83,10 @@ func TestCommandFlagParse(t *testing.T) {
 			"b3":  "true",
 		},
 		expectedRemaining: []string{"f1", "f2"},
+	}, {
+		name:     "bool at end",
+		src:      []string{"--b1"},
+		expected: map[string]string{"b1": "true"},
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, gotRemaining, err := parseFlags(tc.src, booleans)

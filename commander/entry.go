@@ -80,6 +80,7 @@ func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, 
 		if _, ok := booleans[arg]; ok {
 			if len(src) == 0 || strings.HasPrefix(src[0], "-") {
 				flagMap[arg] = "true"
+				continue
 			}
 			lower := strings.ToLower(src[0])
 			// Consume a flag for true or false only.
