@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/pentops/log.go/log"
 )
@@ -24,19 +22,18 @@ const (
 )
 
 type Group struct {
-	name            string
-	runners         []*runner
-	controlMutex    sync.Mutex
-	triggered       bool
-	logger          log.Logger
-	cancelOnSignals []os.Signal
+	name          string
+	runners       []*runner
+	controlMutex  sync.Mutex
+	triggered     bool
+	logger        log.Logger
+	exitOnSignals []os.Signal
 }
 
 type runner struct {
 	name string
 	f    func(ctx context.Context) error
 	err  error
-	done bool
 }
 
 type option func(*Group)
@@ -53,10 +50,7 @@ func WithName(name string) option {
 	}
 }
 
-// WithCancelOnSignals will cancel the context when any of the given signals
-// are received. If no signals are given, the default signals are used:
-// os.Interrupt, os.Kill, syscall.SIGTERM
-func WithCancelOnSignals(signals ...os.Signal) option {
+func WithExitOnSignals(signals ...os.Signal) option {
 	if len(signals) == 0 {
 		signals = []os.Signal{
 			os.Interrupt,
@@ -65,7 +59,7 @@ func WithCancelOnSignals(signals ...os.Signal) option {
 		}
 	}
 	return func(g *Group) {
-		g.cancelOnSignals = signals
+		g.exitOnSignals = signals
 	}
 }
 
@@ -113,10 +107,6 @@ func (gg *Group) Run(ctx context.Context) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	if len(gg.cancelOnSignals) > 0 {
-		ctx, _ = signal.NotifyContext(ctx, gg.cancelOnSignals...)
-	}
-
 	var firstError error
 	errorMutex := sync.Mutex{}
 
@@ -129,7 +119,6 @@ func (gg *Group) Run(ctx context.Context) error {
 			gg.logger.Info(ctx, LogLineRunnerStarted)
 			err := rr.f(ctx)
 			rr.err = err
-			rr.done = true
 			if err != nil {
 				errorMutex.Lock()
 				if firstError == nil {
@@ -148,36 +137,11 @@ func (gg *Group) Run(ctx context.Context) error {
 		}(ctx, rr)
 	}
 
-	<-ctx.Done()
-	gg.logger.Info(ctx, "Context canceled, waiting for runners to exit")
+	if len(gg.exitOnSignals) > 0 {
+		go func() {
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second*30)
-	defer shutdownCancel()
-
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-shutdownCtx.Done():
-				return
-			case <-ticker.C:
-				for _, rr := range gg.runners {
-					if rr.done {
-						continue
-					}
-					gg.logger.Info(log.WithField(ctx, "runner", rr.name), "Waiting for runner to exit")
-				}
-				gg.logger.Info(ctx, "Waiting for runners to exit")
-			}
-		}
-	}()
-
-	go func() {
-		<-shutdownCtx.Done()
-		gg.logger.Error(ctx, "Shutdown timeout exceeded, exiting")
-		os.Exit(1)
-	}()
+		}()
+	}
 
 	wg.Wait()
 
