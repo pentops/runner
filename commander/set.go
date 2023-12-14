@@ -25,7 +25,7 @@ func (cs *CommandSet) Add(name string, command Runnable) {
 	cs.commands[name] = command
 }
 
-func (cs *CommandSet) help() string {
+func (cs *CommandSet) Help() string {
 	var help string
 	for name, command := range cs.commands {
 		help += name + "\t" + command.Help() + "\n"
@@ -34,7 +34,7 @@ func (cs *CommandSet) help() string {
 }
 
 func (cs *CommandSet) helpExit(ctx context.Context, args []string) error {
-	helpString := cs.help()
+	helpString := cs.Help()
 	fmt.Println(helpString)
 	os.Exit(1)
 	return nil
@@ -64,4 +64,17 @@ func (cs *CommandSet) RunMain(name, version string) {
 		fmt.Println(mainErr)
 		os.Exit(1)
 	}
+}
+
+func (cs *CommandSet) Run(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return cs.helpExit(ctx, args)
+	}
+
+	command, ok := cs.commands[args[0]]
+	if !ok {
+		return cs.helpExit(ctx, args)
+	}
+
+	return command.Run(ctx, args[1:])
 }

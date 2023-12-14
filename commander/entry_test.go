@@ -82,6 +82,49 @@ func TestCommandHappy(t *testing.T) {
 
 }
 
+func TestNested(t *testing.T) {
+
+	var fooConfig *TestConfig
+	var barConfig *TestConfig
+
+	root := NewCommandSet()
+	root.Add("foo", NewCommand(func(ctx context.Context, cfg TestConfig) error {
+		fooConfig = &cfg
+		return nil
+	}))
+
+	sub := NewCommandSet()
+	sub.Add("bar", NewCommand(func(ctx context.Context, cfg TestConfig) error {
+		barConfig = &cfg
+		return nil
+	}))
+
+	root.Add("sub", sub)
+
+	err := root.Run(context.Background(), []string{"foo", "--foo=1"})
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	err = root.Run(context.Background(), []string{"sub", "bar", "--foo=2"})
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	if fooConfig == nil {
+		t.Errorf("Expected fooConfig to be set")
+	} else if fooConfig.Foo != "1" {
+		t.Errorf("Expected fooConfig.Foo to be 1, got %v", fooConfig.Foo)
+	}
+
+	if barConfig == nil {
+		t.Errorf("Expected barConfig to be set")
+	} else if barConfig.Foo != "2" {
+		t.Errorf("Expected barConfig.Foo to be 2, got %v", barConfig.Foo)
+	}
+
+}
+
 func TestCommandFlagParse(t *testing.T) {
 
 	booleans := map[string]struct{}{
