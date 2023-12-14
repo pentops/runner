@@ -5,51 +5,79 @@ import (
 	"testing"
 )
 
-type TestFlagConfig struct {
-	Foo string `flag:"foo"`
-	Bar string `flag:"bar" default:"bar"`
-}
-
-type TestEnvConfig struct {
-	Foo string `env:"FOO"`
-	Bar string `env:"BAR" default:"bar"`
+type TestConfig struct {
+	Foo string `flag:"foo" env:"FOO"`
+	Bar string `flag:"bar" env:"BAR" default:"bar"`
 }
 
 func TestCommandHappy(t *testing.T) {
 
-	var gotFlagConfig TestFlagConfig
-	var gotEnvConfig TestEnvConfig
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		env      map[string]string
+		expected TestConfig
+	}{{
+		name: "flags",
+		args: []string{"--foo=foo", "--bar=bar"},
+		expected: TestConfig{
+			Foo: "foo",
+			Bar: "bar",
+		},
+	}, {
+		name: "env",
+		env: map[string]string{
+			"FOO": "foo",
+			"BAR": "bar",
+		},
+		expected: TestConfig{
+			Foo: "foo",
+			Bar: "bar",
+		},
+	}, {
+		name: "flag overrides env",
+		args: []string{"--foo=foo", "--bar=bar"},
+		env: map[string]string{
+			"FOO": "foo2",
+			"BAR": "bar2",
+		},
+		expected: TestConfig{
+			Foo: "foo",
+			Bar: "bar",
+		},
+	}, {
+		name: "default",
+		args: []string{"--foo=foo"},
+		expected: TestConfig{
+			Foo: "foo",
+			Bar: "bar",
+		},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
 
-	t.Setenv("FOO", "foo")
-	cc := NewCommand(func(ctx context.Context, flagConfig TestFlagConfig, envConfig TestEnvConfig) error {
+			var gotConfig TestConfig
 
-		// Do something
-		t.Log(flagConfig)
+			t.Setenv("FOO", "foo")
+			cc := NewCommand(func(ctx context.Context, cfg TestConfig) error {
+				t.Log(cfg)
+				gotConfig = cfg
+				return nil
+			})
 
-		t.Log(envConfig)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			cc.Run(context.Background(), tc.args)
 
-		gotFlagConfig = flagConfig
-		gotEnvConfig = envConfig
+			if gotConfig.Foo != tc.expected.Foo {
+				t.Errorf("Foo: Expected %v, got %v", tc.expected.Foo, gotConfig.Foo)
+			}
 
-		return nil
-	})
+			if gotConfig.Bar != tc.expected.Bar {
+				t.Errorf("Bar: Expected %v, got %v", tc.expected.Bar, gotConfig.Bar)
+			}
 
-	cc.Run(context.Background(), []string{"--foo=foo"})
-
-	if gotFlagConfig.Foo != "foo" {
-		t.Errorf("Expected flagConfig.Foo to be foo, got %v", gotFlagConfig.Foo)
-	}
-
-	if gotFlagConfig.Bar != "bar" {
-		t.Errorf("Expected flagConfig.Bar to be bar, got %v", gotFlagConfig.Bar)
-	}
-
-	if gotEnvConfig.Foo != "foo" {
-		t.Errorf("Expected envConfig.Foo to be foo, got %v", gotEnvConfig.Foo)
-	}
-
-	if gotEnvConfig.Bar != "bar" {
-		t.Errorf("Expected envConfig.Bar to be bar, got %v", gotEnvConfig.Bar)
+		})
 	}
 
 }

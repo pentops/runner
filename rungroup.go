@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/pentops/log.go/log"
 )
@@ -147,37 +146,6 @@ func (gg *Group) Run(ctx context.Context) error {
 			}
 		}(ctx, rr)
 	}
-
-	<-ctx.Done()
-	gg.logger.Info(ctx, "Context canceled, waiting for runners to exit")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second*30)
-	defer shutdownCancel()
-
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-shutdownCtx.Done():
-				return
-			case <-ticker.C:
-				for _, rr := range gg.runners {
-					if rr.done {
-						continue
-					}
-					gg.logger.Info(log.WithField(ctx, "runner", rr.name), "Waiting for runner to exit")
-				}
-				gg.logger.Info(ctx, "Waiting for runners to exit")
-			}
-		}
-	}()
-
-	go func() {
-		<-shutdownCtx.Done()
-		gg.logger.Error(ctx, "Shutdown timeout exceeded, exiting")
-		os.Exit(1)
-	}()
 
 	wg.Wait()
 
