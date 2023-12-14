@@ -11,56 +11,27 @@ import (
 	"time"
 )
 
-type Command[F any, E any] struct {
-	Callback func(context.Context, F, E) error
+type Command[C any] struct {
+	Callback func(context.Context, C) error
 }
 
-func NewCommand[F any, E any](callback func(context.Context, F, E) error) *Command[F, E] {
-	return &Command[F, E]{Callback: callback}
+func NewCommand[C any](callback func(context.Context, C) error) *Command[C] {
+	return &Command[C]{Callback: callback}
 }
 
-func (cc *Command[F, E]) Help() string {
+func (cc *Command[C]) Help() string {
 	return "//todo"
 }
 
-func (cc *Command[F, E]) Run(ctx context.Context, args []string) error {
-	flagConfig := new(F)
-	envConfig := new(E)
+func (cc *Command[C]) Run(ctx context.Context, args []string) error {
+	config := new(C)
+	configValue := reflect.ValueOf(config).Elem()
 
-	flagValue := reflect.ValueOf(flagConfig).Elem()
-	booleans := make(map[string]struct{})
-	for i := 0; i < flagValue.NumField(); i++ {
-		field := flagValue.Type().Field(i)
-		if field.Type.Kind() != reflect.Bool {
-			continue
-		}
-		flagName := field.Tag.Get("flag")
-		if flagName == "" {
-			continue
-		}
-		booleans[flagName] = struct{}{}
-	}
-
-	flagMap, remainingArgs, err := parseFlags(args, booleans)
-	if err != nil {
+	if err := parse(configValue, args); err != nil {
 		return err
 	}
 
-	if err := parse("flag", flagValue, func(s string) string {
-		if val, ok := flagMap[s]; ok {
-			return val
-		}
-		return ""
-	}, remainingArgs); err != nil {
-		return err
-	}
-
-	envValue := reflect.ValueOf(envConfig).Elem()
-	if err := parse("env", envValue, os.Getenv, nil); err != nil {
-		return err
-	}
-
-	return cc.Callback(ctx, *flagConfig, *envConfig)
+	return cc.Callback(ctx, *config)
 }
 
 func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, []string, error) {
@@ -115,15 +86,36 @@ func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, 
 	return flagMap, []string{}, nil
 }
 
-func parse(tagName string, rv reflect.Value, resolver func(string) string, remainingArgs []string) error {
+func parse(rv reflect.Value, args []string) error {
+
+	booleans := make(map[string]struct{})
+	for i := 0; i < rv.NumField(); i++ {
+		field := rv.Type().Field(i)
+		if field.Type.Kind() != reflect.Bool {
+			continue
+		}
+		flagName := field.Tag.Get("flag")
+		if flagName == "" {
+			continue
+		}
+		booleans[flagName] = struct{}{}
+	}
+
+	flagMap, remainingArgs, err := parseFlags(args, booleans)
+	if err != nil {
+		return err
+	}
+
 	rt := rv.Type()
 	for i := 0; i < rv.NumField(); i++ {
 		tag := rt.Field(i).Tag
-		envName := tag.Get(tagName)
-		if envName == "" {
+		envName := tag.Get("env")
+		flagName := tag.Get("flag")
+		if envName == "" && flagName == "" {
 			continue
 		}
-		if envName == ",remaining" {
+
+		if flagName == ",remaining" {
 			if rv.Field(i).Kind() != reflect.Slice {
 				return fmt.Errorf("remaining args must be a slice")
 			}
@@ -134,10 +126,22 @@ func parse(tagName string, rv reflect.Value, resolver func(string) string, remai
 			continue
 		}
 
-		envVal := resolver(envName)
-		if envVal == "" {
+		var stringValue string
+		if envName != "" {
+			stringValue = os.Getenv(envName)
+		}
+
+		if flagName != "" {
+			// flags can override env vars
+			flagVal, ok := flagMap[flagName]
+			if ok {
+				stringValue = flagVal
+			}
+		}
+
+		if stringValue == "" {
 			if defaultValue, ok := tag.Lookup("default"); ok {
-				envVal = defaultValue
+				stringValue = defaultValue
 			} else if req, ok := tag.Lookup("required"); ok && req == "false" {
 				continue
 			} else {
@@ -159,17 +163,17 @@ func parse(tagName string, rv reflect.Value, resolver func(string) string, remai
 		}
 
 		if actualType == reflect.Struct {
-			if !strings.HasPrefix(envVal, "{") {
+			if !strings.HasPrefix(stringValue, "{") {
 				return fmt.Errorf("In field %s: struct fields should be set using JSON strings", envName)
 			}
 
-			if err := json.Unmarshal([]byte(envVal), fieldInterface); err != nil {
+			if err := json.Unmarshal([]byte(stringValue), fieldInterface); err != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := SetFromString(fieldInterface, envVal); err != nil {
+		if err := SetFromString(fieldInterface, stringValue); err != nil {
 			return fmt.Errorf("In field %s: %s", envName, err)
 		}
 
