@@ -3,6 +3,7 @@ package commander
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -13,28 +14,117 @@ import (
 
 type Command[C any] struct {
 	Callback func(context.Context, C) error
+	CommandOption
 }
 
-func NewCommand[C any](callback func(context.Context, C) error) *Command[C] {
-	return &Command[C]{Callback: callback}
+type CommandOption struct {
+	description string
+}
+
+func WithDescription(description string) func(*CommandOption) {
+	return func(co *CommandOption) {
+		co.description = description
+	}
+}
+
+func NewCommand[C any](callback func(context.Context, C) error, options ...func(*CommandOption)) *Command[C] {
+	option := CommandOption{}
+	for _, opt := range options {
+		opt(&option)
+	}
+
+	return &Command[C]{
+		Callback:      callback,
+		CommandOption: option,
+	}
+}
+
+func (cc *Command[C]) helpLines(prefix string) []string {
+	config := new(C)
+	rt := reflect.ValueOf(config).Elem().Type()
+	lines := make([][]string, 0, rt.NumField())
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		description := field.Tag.Get("description")
+		flagName := field.Tag.Get("flag")
+		envName := field.Tag.Get("env")
+		defaultValue := field.Tag.Get("default")
+
+		if flagName == "" && envName == "" {
+			continue
+		}
+
+		if defaultValue != "" {
+			description += fmt.Sprintf(" (default: %s)", defaultValue)
+		}
+
+		name := ""
+		if flagName != "" && envName != "" {
+			name = fmt.Sprintf("--%s / $%s", flagName, envName)
+		} else if flagName != "" {
+			name = fmt.Sprintf("--%s", flagName)
+		} else if envName != "" {
+			name = fmt.Sprintf("$%s", envName)
+		}
+
+		lines = append(lines, []string{name, description})
+	}
+	return evenJoin(prefix, lines)
 }
 
 func (cc *Command[C]) Help() string {
-	return "//todo"
+	lines := cc.helpLines("  ")
+	return cc.description + "\n" + strings.Join(lines, "\n")
+}
+
+type HelpError struct {
+	Usage string
+	Lines []string
+}
+
+func (he HelpError) Error() string {
+	return strings.Join(he.Lines, "\n")
 }
 
 func (cc *Command[C]) Run(ctx context.Context, args []string) error {
 	config := new(C)
 	configValue := reflect.ValueOf(config).Elem()
 
-	if err := parse(configValue, args); err != nil {
-		return err
+	parseError := parse(configValue, args)
+	if parseError != nil {
+		if paramErrors := new(ParamErrors); errors.As(parseError, paramErrors) {
+			lines := make([]string, 0, len(*paramErrors))
+			for _, err := range *paramErrors {
+				var name string
+				if err.Flag != "" && err.Env != "" {
+					name = fmt.Sprintf("--%s / $%s", err.Flag, err.Env)
+				} else if err.Flag != "" {
+					name = fmt.Sprintf("--%s", err.Flag)
+				} else if err.Env != "" {
+					name = fmt.Sprintf("$%s", err.Env)
+				} else if err.FieldName != "" {
+					name = err.FieldName
+				} else {
+					name = "<unknown>"
+				}
+				lines = append(lines, fmt.Sprintf("  %s : %s", name, err.Err))
+			}
+
+			lines = append(lines, "Flags and Env Vars:")
+			lines = append(lines, cc.helpLines("  ")...)
+
+			return HelpError{
+				Usage: "[options]",
+				Lines: lines,
+			}
+		}
+		return parseError
 	}
 
 	return cc.Callback(ctx, *config)
 }
 
-func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, []string, error) {
+func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, []string, ParamErrors) {
 	flagMap := make(map[string]string)
 
 	for len(src) > 0 {
@@ -76,7 +166,10 @@ func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, 
 		}
 
 		if len(src) == 0 {
-			return nil, nil, fmt.Errorf("flag %v has no value", arg)
+			return nil, nil, ParamErrors{{
+				Flag: arg,
+				Err:  fmt.Errorf("flag has no value"),
+			}}
 		}
 
 		val := src[0]
@@ -86,7 +179,30 @@ func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, 
 	return flagMap, []string{}, nil
 }
 
+type ParamError struct {
+	Flag      string
+	Env       string
+	FieldName string
+	Err       error
+}
+
+func (pe ParamError) Error() string {
+	return fmt.Sprintf("Error parsing %s: %s", pe.FieldName, pe.Err)
+}
+
+type ParamErrors []ParamError
+
+func (pe ParamErrors) Error() string {
+	var out string
+	for _, err := range pe {
+		out += fmt.Sprintf("Error parsing %s: %s\n", err.FieldName, err.Err)
+	}
+	return out
+}
+
 func parse(rv reflect.Value, args []string) error {
+
+	errs := make(ParamErrors, 0)
 
 	booleans := make(map[string]struct{})
 	for i := 0; i < rv.NumField(); i++ {
@@ -136,16 +252,28 @@ func parse(rv reflect.Value, args []string) error {
 			flagVal, ok := flagMap[flagName]
 			if ok {
 				stringValue = flagVal
+				delete(flagMap, flagName)
 			}
 		}
 
 		if stringValue == "" {
+			if rt.Field(i).Type.Kind() == reflect.Bool {
+				// leave it false
+				continue
+			}
+
 			if defaultValue, ok := tag.Lookup("default"); ok {
 				stringValue = defaultValue
 			} else if req, ok := tag.Lookup("required"); ok && req == "false" {
 				continue
 			} else {
-				return fmt.Errorf("Required ENV var not set: %v", tag)
+				errs = append(errs, ParamError{
+					Flag:      flagName,
+					Env:       envName,
+					FieldName: rt.Field(i).Name,
+					Err:       errors.New("required"),
+				})
+				continue
 			}
 		}
 
@@ -176,10 +304,26 @@ func parse(rv reflect.Value, args []string) error {
 		if err := SetFromString(fieldInterface, stringValue); err != nil {
 			return fmt.Errorf("In field %s: %s", envName, err)
 		}
+	}
 
+	for k := range flagMap {
+		errs = append(errs, ParamError{
+			Err:  errors.New("unknown flag"),
+			Flag: k,
+		})
+	}
+
+	if len(errs) > 0 {
+		return errs
 	}
 	return nil
 
+}
+
+type FlagError string
+
+func (fe FlagError) Error() string {
+	return string(fe)
 }
 
 // SetterFromEnv is used by SetFromString for custom types
