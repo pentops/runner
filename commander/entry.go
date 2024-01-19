@@ -18,12 +18,19 @@ type Command[C any] struct {
 }
 
 type CommandOption struct {
-	description string
+	description     string
+	outcomeCallback func(context.Context, error)
 }
 
 func WithDescription(description string) func(*CommandOption) {
 	return func(co *CommandOption) {
 		co.description = description
+	}
+}
+
+func WithOutcomeCallback(outcomeCallback func(context.Context, error)) func(*CommandOption) {
+	return func(co *CommandOption) {
+		co.outcomeCallback = outcomeCallback
 	}
 }
 
@@ -121,7 +128,11 @@ func (cc *Command[C]) Run(ctx context.Context, args []string) error {
 		return parseError
 	}
 
-	return cc.Callback(ctx, *config)
+	mainErr := cc.Callback(ctx, *config)
+	if cc.outcomeCallback != nil {
+		cc.outcomeCallback(ctx, mainErr)
+	}
+	return mainErr
 }
 
 func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, []string, ParamErrors) {

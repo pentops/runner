@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/pentops/log.go/log"
 )
@@ -106,11 +108,24 @@ func evenJoin(prefix string, lines [][]string) []string {
 // RunMain should run from the main command, it will handle OS Exits, and should
 // be the only goroutine running.
 func (cs *CommandSet) RunMain(name, version string) {
-	ctx := log.WithFields(context.Background(), map[string]interface{}{
+	ctx := context.Background()
+	ctx = log.WithFields(ctx, map[string]interface{}{
 		"app":     name,
 		"version": version,
 	})
+	ctx, stop := signal.NotifyContext(ctx,
+		os.Interrupt,
+		os.Kill,
+		os.Signal(syscall.SIGTERM),
+	)
+
+	go func() {
+		<-ctx.Done()
+		log.Info(ctx, "Main Context Done")
+	}()
+
 	ok := cs.runMain(ctx, os.Stderr, os.Args)
+	stop()
 	if !ok {
 		os.Exit(1)
 	}
@@ -144,7 +159,6 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 			fmt.Fprintln(errOut, flagErrString)
 			return false
 		}
-		fmt.Printf("A passthrough error: %T\n", mainErr)
 
 		fmt.Fprintf(errOut, "Error running command: %s\n", mainErr)
 		return false
