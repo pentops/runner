@@ -362,6 +362,10 @@ func SetFromString(fieldInterface interface{}, stringVal string) error {
 		*field = bVal
 		return nil
 
+	case *[]byte:
+		*field = []byte(stringVal)
+		return nil
+
 	case *int:
 		*field, err = strconv.Atoi(stringVal)
 		return err

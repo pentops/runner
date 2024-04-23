@@ -337,3 +337,22 @@ func TestCommandFlagParse(t *testing.T) {
 	}
 
 }
+
+func TestSetFromString(t *testing.T) {
+
+	t.Run("string", func(t *testing.T) {
+		val := ""
+		SetFromString(&val, "foo")
+		if val != "foo" {
+			t.Errorf("Expected 'foo', got %v", val)
+		}
+	})
+
+	t.Run("bytes", func(t *testing.T) {
+		val := []byte{}
+		SetFromString(&val, "foo")
+		if string(val) != "foo" {
+			t.Errorf("Expected 'foo', got %v", val)
+		}
+	})
+}
