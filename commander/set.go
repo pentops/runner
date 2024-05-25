@@ -185,7 +185,6 @@ func (cs *CommandSet) Run(ctx context.Context, args []string) error {
 	mainErr := command.command.Run(ctx, args[1:])
 	if mainErr != nil {
 		if helpError := new(HelpError); errors.As(mainErr, helpError) {
-			fmt.Printf("A Returning help error\n")
 			helpError.Usage = command.name + " " + helpError.Usage
 			return *helpError
 		}

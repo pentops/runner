@@ -71,7 +71,6 @@ func (cd *cmdData) popValue(tag parsedTag) (*string, error) {
 	if tag.flagName != "" {
 		val, ok := cd.flagMap[tag.flagName]
 		if ok {
-			fmt.Printf("Found and deleting %s\n", tag.flagName)
 			delete(cd.flagMap, tag.flagName)
 			return &val, nil
 		}
