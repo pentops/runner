@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/pentops/log.go/log"
+	"github.com/pentops/runner/cliconf"
 )
 
 type Runnable interface {
@@ -154,7 +155,7 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 			}
 			return false
 		}
-		if flagErr := new(FlagError); errors.As(mainErr, flagErr) {
+		if flagErr := new(cliconf.FlagError); errors.As(mainErr, flagErr) {
 			flagErrString := strings.Replace(flagErr.Error(), "$0", strings.Join(args[0:2], " "), -1)
 			fmt.Fprintln(errOut, flagErrString)
 			return false
