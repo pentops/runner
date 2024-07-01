@@ -21,72 +21,120 @@ func toStructVal(rv reflect.Value) (reflect.Value, error) {
 	return rv, nil
 }
 
-// findBooleanFlags returns a set of flag names that are boolean, i.e., take no
-// parameter when set --bool vs --bool=true
-func findBooleanFlags(rt reflect.Type) map[string]struct{} {
-	booleans := make(map[string]struct{})
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-		switch field.Type.Kind() {
-		case reflect.Struct:
-			subBools := findBooleanFlags(field.Type)
-			for k := range subBools {
-				booleans[k] = struct{}{}
-			}
-		case reflect.Bool:
-			flagName := field.Tag.Get("flag")
-			if flagName == "" {
-				continue
-			}
-			booleans[flagName] = struct{}{}
+func findStructFields(rv reflect.Value) ([]*field, error) {
+	rt := rv.Type()
+
+	fields := make([]*field, 0)
+
+	for i := 0; i < rv.NumField(); i++ {
+		fieldType := rt.Field(i)
+		fieldValue := rv.Field(i)
+		parsed, err := structField(fieldType, fieldValue)
+		if err != nil {
+			return nil, err
+		}
+		if parsed != nil {
+			fields = append(fields, parsed)
+		}
+
+		if fieldType.Type.Kind() != reflect.Struct {
+			continue
+		}
+		subStruct, err := toStructVal(fieldValue)
+		if err != nil {
+			// INVERSION
+			continue
+		}
+
+		subFields, err := findStructFields(subStruct)
+		if err != nil {
+			return nil, err
+		}
+		for _, subField := range subFields {
+			subField.fieldName = fieldType.Name + "." + subField.fieldName
+			fields = append(fields, subField)
 		}
 	}
-	return booleans
+
+	return fields, nil
 }
 
-type parsedTag struct {
+type field struct {
+	fieldName  string
 	isBool     bool
-	envName    string
-	flagName   string
-	remaining  bool
 	optional   bool
 	defaultVal *string
+	fieldVal   reflect.Value
+
+	// one of the following
+	// - envName and/or flagName
+	// - argN
+	// - remaining
+
+	envName  string
+	flagName string
+
+	remaining bool
+	argn      *int
 }
 
-func parseField(field reflect.StructField) *parsedTag {
-	tag := field.Tag
+func structField(inputField reflect.StructField, val reflect.Value) (*field, error) {
+	tag := inputField.Tag
 	envName := tag.Get("env")
 	flagName := tag.Get("flag")
 	if envName == "" && flagName == "" {
-		return nil
+		return nil, nil
 	}
 
-	if flagName == ",remaining" {
-		return &parsedTag{
-			remaining: true,
+	parts := strings.SplitN(flagName, ",", 2)
+	flagName = parts[0]
+	parsed := &field{
+		isBool:    inputField.Type.Kind() == reflect.Bool,
+		envName:   envName,
+		flagName:  flagName,
+		fieldName: inputField.Name,
+		fieldVal:  val,
+	}
+
+	if len(parts) == 2 {
+		flagFlag := parts[1]
+
+		if flagFlag == "remaining" {
+			if flagName != "" {
+				return nil, fmt.Errorf("param name %q cannot be used with ,remaining", flagName)
+			}
+			if inputField.Type.Kind() != reflect.Slice {
+				return nil, fmt.Errorf("remaining args must be a slice")
+			}
+			if inputField.Type.Elem().Kind() != reflect.String {
+				return nil, fmt.Errorf("remaining args must be a slice of strings")
+			}
+			parsed.remaining = true
+		} else if strings.HasPrefix(flagFlag, "arg") {
+			if flagName != "" {
+				return nil, fmt.Errorf("param name %q cannot be used with ,argN", flagName)
+			}
+			argn, err := strconv.Atoi(strings.TrimPrefix(flagFlag, "arg"))
+			if err != nil {
+				panic(fmt.Sprintf("invalid arg number %q", flagFlag))
+			}
+			parsed.argn = &argn
 		}
 	}
 
 	defaultStr, ok := tag.Lookup("default")
-	var defaultVal *string
 	if ok {
-		defaultVal = &defaultStr
+		parsed.defaultVal = &defaultStr
 	}
 
-	optional := false
 	if strings.ToLower(tag.Get("required")) == "false" {
-		optional = true
+		parsed.optional = true
 	} else if strings.ToLower(tag.Get("optional")) == "true" {
-		optional = true
+		parsed.optional = true
 	}
 
-	return &parsedTag{
-		isBool:     field.Type.Kind() == reflect.Bool,
-		envName:    envName,
-		flagName:   flagName,
-		optional:   optional,
-		defaultVal: defaultVal,
-	}
+	return parsed, nil
+
 }
 
 // SetterFromEnv is used by SetFromString for custom types
@@ -192,8 +240,11 @@ func SetFromString(fieldInterface interface{}, stringVal string) error {
 }
 
 type HelpLine struct {
-	FlagName    string
-	EnvName     string
+	FlagName  string
+	EnvName   string
+	ArgN      *int
+	Remaining bool
+
 	Description string
 	Default     *string
 	Required    bool
@@ -203,7 +254,10 @@ func GetHelpLines(rt reflect.Type) []HelpLine {
 	lines := make([]HelpLine, 0, rt.NumField())
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
-		tag := parseField(field)
+		tag, err := structField(field, reflect.Value{})
+		if err != nil {
+			panic(err)
+		}
 		if tag == nil {
 			if field.Type.Kind() == reflect.Struct {
 				subLines := GetHelpLines(field.Type)
@@ -219,6 +273,8 @@ func GetHelpLines(rt reflect.Type) []HelpLine {
 			Description: field.Tag.Get("description"),
 			Default:     tag.defaultVal,
 			Required:    !tag.optional,
+			ArgN:        tag.argn,
+			Remaining:   tag.remaining,
 		})
 	}
 	return lines

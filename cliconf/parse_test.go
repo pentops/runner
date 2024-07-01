@@ -9,6 +9,7 @@ type TestConfig struct {
 	Foo string `flag:"foo" env:"FOO" description:"foo description"`
 	Bar string `flag:"bar" env:"BAR" default:"bar" description:"bar description"`
 	Baz bool   `flag:"baz" description:"baz description"`
+	Arg string `flag:",arg0" optional:"true" description:"arg description"`
 	NestedConfig
 }
 
@@ -26,10 +27,11 @@ func TestParseEntry(t *testing.T) {
 		expected TestConfig
 	}{{
 		name: "flags",
-		args: []string{"--foo=foo", "--bar=bar"},
+		args: []string{"--foo=foo", "--bar=bar", "arg"},
 		expected: TestConfig{
 			Foo: "foo",
 			Bar: "bar",
+			Arg: "arg",
 		},
 	}, {
 		name: "env",

@@ -7,36 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBoolSearch(t *testing.T) {
-	type Nested struct {
-		NestBool bool `flag:"nest"`
-	}
-
-	type Input struct {
-		Foo bool `flag:"foo" env:"FOO"`
-		Bar bool
-		Baz bool `flag:"baz" description:"baz description"`
-		Nested
-	}
-
-	bools := findBooleanFlags(reflect.TypeOf(Input{}))
-
-	if len(bools) != 3 {
-		t.Errorf("Expected 3, got %v", len(bools))
-	}
-
-	if _, ok := bools["baz"]; !ok {
-		t.Errorf("Expected 'baz' to be present")
-	}
-	if _, ok := bools["foo"]; !ok {
-		t.Errorf("Expected 'foo' to be present")
-	}
-	if _, ok := bools["nest"]; !ok {
-		t.Errorf("Expected 'nest' to be present")
-	}
-}
-
 func TestParseField(t *testing.T) {
+
+	type Nested struct {
+		N1 string `flag:"n1" env:"N1" optional:"true"`
+		N2 bool   `flag:"n2"`
+	}
 
 	type Input struct {
 		Foo   string `flag:"foo" env:"FOO"`
@@ -44,18 +20,18 @@ func TestParseField(t *testing.T) {
 		Baz   bool   `flag:"baz" description:"baz description"`
 		Doo   string `flag:"doo" env:"DOO" required:"false"`
 		NoTag string
+		Nested
 	}
 
-	byName := make(map[string]*parsedTag)
-	rt := reflect.TypeOf(Input{})
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-		tag := parseField(field)
-		if tag == nil {
-			continue
-		}
-		byName[field.Name] = tag
-		t.Logf("Field: %s, %v", field.Name, tag)
+	byName := make(map[string]*field)
+
+	allFields, err := findStructFields(reflect.ValueOf(Input{}))
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	for _, field := range allFields {
+		byName[field.fieldName] = field
+		t.Logf("Field: %s, %v", field.fieldName, field)
 	}
 
 	foo, ok := byName["Foo"]
@@ -91,6 +67,13 @@ func TestParseField(t *testing.T) {
 		t.Errorf("Expected 'Doo' to be present")
 	} else {
 		assert.Equal(t, true, doo.optional)
+	}
+
+	n1, ok := byName["Nested.N1"]
+	if !ok {
+		t.Errorf("Expected 'Nested.N1' to be present")
+	} else {
+		assert.Equal(t, "n1", n1.flagName)
 	}
 
 }

@@ -63,6 +63,12 @@ func (cc *Command[C]) helpLines(prefix string) []string {
 			name = fmt.Sprintf("--%s", tag.FlagName)
 		} else if tag.EnvName != "" {
 			name = fmt.Sprintf("$%s", tag.EnvName)
+		} else if tag.ArgN != nil {
+			name = fmt.Sprintf("<arg%d>", *tag.ArgN)
+		} else if tag.Remaining {
+			name = "<remaining args>"
+		} else {
+			name = "<unknown>"
 		}
 
 		lines = append(lines, []string{name, description})

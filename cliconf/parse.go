@@ -37,18 +37,98 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 		return err
 	}
 
-	rt := rv.Type()
+	fields, err := findStructFields(rv)
+	if err != nil {
+		return err
+	}
 
-	booleans := findBooleanFlags(rt)
+	argMap := map[int]*field{}
+	var remaining *field
+	booleans := map[string]struct{}{}
+	flagEnvFields := make([]*field, 0, len(fields))
+
+	for _, field := range fields {
+		if field.isBool {
+			booleans[field.flagName] = struct{}{}
+		}
+
+		if field.argn != nil {
+			argMap[*field.argn] = field
+		} else if field.remaining {
+			if remaining != nil {
+				return fmt.Errorf("only one field can be tagged with ,remaining")
+			}
+			remaining = field
+		} else if field.flagName != "" || field.envName != "" {
+			flagEnvFields = append(flagEnvFields, field)
+		} else {
+			return fmt.Errorf("field %s has no flag, env, argn, or remaining tag", field.fieldName)
+		}
+	}
+
 	flagMap, remainingArgs, err := parseFlags(args, booleans)
 	if err != nil {
 		return err
 	}
+
 	dd := &cmdData{
-		flagMap:   flagMap,
-		remaining: remainingArgs,
+		flagMap: flagMap,
 	}
-	flagErr := dd.runStruct(rv)
+
+	flagErr := make(ParamErrors, 0)
+	thenRemainingArgs := make([]string, 0, len(remainingArgs))
+	for idx, arg := range remainingArgs {
+		argField, ok := argMap[idx]
+		if ok {
+			err = setFieldValue(argField, arg)
+			if err != nil {
+				flagErr = append(flagErr, ParamError{
+					Flag:      argField.flagName,
+					Env:       argField.envName,
+					FieldName: argField.fieldName,
+					Err:       err,
+				})
+			}
+		} else {
+			thenRemainingArgs = append(thenRemainingArgs, arg)
+		}
+	}
+
+	if len(thenRemainingArgs) > 0 {
+		if remaining != nil {
+			remaining.fieldVal.Set(reflect.ValueOf(remainingArgs))
+		} else if len(remainingArgs) > 0 {
+			flagErr = append(flagErr, ParamError{
+				FieldName: "remaining",
+				Err:       errors.New("too many remaining args"),
+			})
+		}
+	}
+
+	for _, field := range flagEnvFields {
+
+		stringPtr, err := dd.popValue(field)
+		if err != nil {
+			return err
+		}
+
+		if stringPtr == nil {
+			// if required, popValue will already throw
+			continue
+		}
+
+		stringValue := *stringPtr
+		err = setFieldValue(field, stringValue)
+		if err != nil {
+			flagErr = append(flagErr, ParamError{
+				Flag:      field.flagName,
+				Env:       field.envName,
+				FieldName: field.fieldName,
+				Err:       err,
+			})
+		}
+	}
+
 	for k := range dd.flagMap {
 		flagErr = append(flagErr, ParamError{
 			Err:  errors.New("unknown flag"),
@@ -62,12 +142,10 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 }
 
 type cmdData struct {
-	flagMap       map[string]string
-	remaining     []string
-	usedRemaining bool
+	flagMap map[string]string
 }
 
-func (cd *cmdData) popValue(tag parsedTag) (*string, error) {
+func (cd *cmdData) popValue(tag *field) (*string, error) {
 	if tag.flagName != "" {
 		val, ok := cd.flagMap[tag.flagName]
 		if ok {
@@ -100,34 +178,9 @@ func (cd *cmdData) popValue(tag parsedTag) (*string, error) {
 	return nil, errors.New("required")
 }
 
-func (cd *cmdData) runField(tag parsedTag, fieldVal reflect.Value) error {
+func setFieldValue(field *field, stringValue string) error {
 
-	if tag.remaining {
-		if cd.usedRemaining {
-			return fmt.Errorf("only one field can be tagged with ,remaining")
-		}
-		if fieldVal.Kind() != reflect.Slice {
-			return fmt.Errorf("remaining args must be a slice")
-		}
-		if fieldVal.Type().Elem().Kind() != reflect.String {
-			return fmt.Errorf("remaining args must be a slice of strings")
-		}
-		fieldVal.Set(reflect.ValueOf(cd.remaining))
-		cd.usedRemaining = true
-		return nil
-	}
-
-	stringPtr, err := cd.popValue(tag)
-	if err != nil {
-		return err
-	}
-
-	if stringPtr == nil {
-		// if required, popValue will already throw
-		return nil
-	}
-
-	stringValue := *stringPtr
+	fieldVal := field.fieldVal
 
 	fieldInterface := fieldVal.Addr().Interface()
 
@@ -157,49 +210,6 @@ func (cd *cmdData) runField(tag parsedTag, fieldVal reflect.Value) error {
 	}
 
 	return nil
-}
-
-func (cd *cmdData) runStruct(rv reflect.Value) ParamErrors {
-	errs := make(ParamErrors, 0)
-	rt := rv.Type()
-
-	for i := 0; i < rv.NumField(); i++ {
-		fieldType := rt.Field(i)
-		parsed := parseField(fieldType)
-		if parsed == nil {
-			if fieldType.Type.Kind() != reflect.Struct {
-				continue
-			}
-			subStruct, err := toStructVal(rv.Field(i))
-			if err != nil {
-				// INVERSION
-				continue
-			}
-
-			subErrs := cd.runStruct(subStruct)
-			if len(subErrs) > 0 {
-				errs = append(errs, subErrs...)
-			}
-
-			continue
-		}
-		err := cd.runField(*parsed, rv.Field(i))
-		if err != nil {
-			errs = append(errs, ParamError{
-				Flag:      parsed.flagName,
-				Env:       parsed.envName,
-				FieldName: fieldType.Name,
-				Err:       err,
-			})
-		}
-
-	}
-
-	if len(errs) > 0 {
-		return errs
-	}
-	return nil
-
 }
 
 type FlagError string
