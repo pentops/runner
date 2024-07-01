@@ -120,11 +120,6 @@ func (cs *CommandSet) RunMain(name, version string) {
 		os.Signal(syscall.SIGTERM),
 	)
 
-	go func() {
-		<-ctx.Done()
-		log.Info(ctx, "Main Context Done")
-	}()
-
 	ok := cs.runMain(ctx, os.Stderr, os.Args)
 	stop()
 	if !ok {
@@ -139,9 +134,10 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 		return false
 	}
 
-	command, ok := cs.findCommand(args[1])
+	commandName := args[1]
+	command, ok := cs.findCommand(commandName)
 	if !ok {
-		fmt.Fprintf(errOut, "Unknown command: '%s'\n", args[1])
+		fmt.Fprintf(errOut, "Unknown command: '%s'\n", commandName)
 		cs.printCommands(errOut, "  ")
 		return false
 	}
@@ -161,7 +157,7 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 			return false
 		}
 
-		fmt.Fprintf(errOut, "Error running command: %s\n", mainErr)
+		fmt.Fprintf(errOut, "Command %s returned error: %s", commandName, mainErr)
 		return false
 	}
 	return true
