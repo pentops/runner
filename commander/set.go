@@ -157,7 +157,7 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 			return false
 		}
 
-		fmt.Fprintf(errOut, "Command %s returned error: %s\n", commandName, mainErr)
+		fmt.Fprintf(errOut, "Command %q returned error: %s\n", commandName, mainErr)
 		return false
 	}
 	return true

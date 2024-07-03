@@ -113,7 +113,16 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 		}
 
 		if stringPtr == nil {
-			// if required, popValue will already throw
+			if field.optional {
+				continue
+			}
+
+			flagErr = append(flagErr, ParamError{
+				Flag:      field.flagName,
+				Env:       field.envName,
+				FieldName: field.fieldName,
+				Err:       errors.New("required"),
+			})
 			continue
 		}
 
@@ -162,20 +171,16 @@ func (cd *cmdData) popValue(tag *field) (*string, error) {
 	}
 
 	if tag.isBool {
-		// leave it false
-		return nil, nil
+		falseStr := "false"
+		return &falseStr, nil
 	}
 
 	if tag.defaultVal != nil {
 		// if default is empty, that still works, e.g. empty string
 		return tag.defaultVal, nil
 	}
+	return nil, nil
 
-	if tag.optional {
-		return nil, nil
-	}
-
-	return nil, errors.New("required")
 }
 
 func setFieldValue(field *field, stringValue string) error {
