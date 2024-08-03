@@ -116,7 +116,7 @@ func structField(inputField reflect.StructField, val reflect.Value) (*field, err
 			}
 			argn, err := strconv.Atoi(strings.TrimPrefix(flagFlag, "arg"))
 			if err != nil {
-				panic(fmt.Sprintf("invalid arg number %q", flagFlag))
+				return nil, fmt.Errorf("invalid arg number %q", flagFlag)
 			}
 			parsed.argn = &argn
 		}
