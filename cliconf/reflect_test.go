@@ -82,7 +82,9 @@ func TestSetFromString(t *testing.T) {
 
 	t.Run("string", func(t *testing.T) {
 		val := ""
-		SetFromString(&val, "foo")
+		if err := SetFromString(&val, "foo"); err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 		if val != "foo" {
 			t.Errorf("Expected 'foo', got %v", val)
 		}
@@ -90,7 +92,9 @@ func TestSetFromString(t *testing.T) {
 
 	t.Run("bytes", func(t *testing.T) {
 		val := []byte{}
-		SetFromString(&val, "foo")
+		if err := SetFromString(&val, "foo"); err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
 		if string(val) != "foo" {
 			t.Errorf("Expected 'foo', got %v", val)
 		}
