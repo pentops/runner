@@ -3,7 +3,7 @@ module github.com/pentops/runner
 go 1.21.4
 
 require (
-	github.com/pentops/log.go v0.0.0-20240806063310-95e64c81229c
+	github.com/pentops/log.go v0.0.0-20240806161938-2742d05b4c24
 	github.com/stretchr/testify v1.9.0
 )
 
