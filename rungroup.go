@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/pentops/log.go/log"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -24,18 +25,24 @@ const (
 
 type Group struct {
 	name            string
-	runners         []*runner
-	controlMutex    sync.Mutex
-	triggered       bool
 	logger          log.Logger
 	cancelOnSignals []os.Signal
+
+	running   bool
+	isWaiting bool
+
+	errGroup     *errgroup.Group
+	runners      []*runner
+	controlMutex sync.Mutex
+	runContext   context.Context
+
+	holdOpen chan struct{}
 }
 
 type runner struct {
-	name string
-	f    func(ctx context.Context) error
-	err  error
-	done bool
+	name    string
+	f       func(ctx context.Context) error
+	stopped chan struct{}
 }
 
 type option func(*Group)
@@ -78,87 +85,140 @@ func NewGroup(options ...option) *Group {
 	return gg
 }
 
-func (gg *Group) Add(name string, f func(ctx context.Context) error) {
-	if gg.triggered {
-		// attempting both before and after the lock. not strictly thread
-		// *safe* but all of the ways this can unfold will sort of work anyway.
-		// The worst case is that the panic is not triggered and the function
-		// which calls this will block waiting for the mutex until the rungroup
-		// exits, THEN panic.
-		panic("cannot add runners after the group is triggered")
-	}
+// Add registers a function to run when the group is triggered with Run or Start.
+// If the group is already running, the function will be started immediately and
+// added to the pool.
+func (gg *Group) Add(name string, f func(ctx context.Context) error) error {
 	gg.controlMutex.Lock()
 	defer gg.controlMutex.Unlock()
-	if gg.triggered {
-		panic("cannot add runners after the group is triggered")
+
+	if gg.isWaiting {
+		return fmt.Errorf("group is already waiting")
 	}
-	gg.runners = append(gg.runners, &runner{name: name, f: f})
+
+	runner := &runner{name: name, f: f}
+	gg.runners = append(gg.runners, runner)
+	if gg.running {
+		gg.startRunner(gg.runContext, runner)
+	}
+
+	return nil
+}
+
+func (gg *Group) startRunner(ctx context.Context, rr *runner) {
+	rr.stopped = make(chan struct{})
+	ctx = log.WithField(ctx, "runner", rr.name)
+	gg.errGroup.Go(func() error {
+		gg.logger.Info(ctx, LogLineRunnerStarted)
+		err := rr.f(ctx)
+		close(rr.stopped)
+		if err == nil {
+			gg.logger.Info(ctx, LogLineRunnerExited)
+			return nil
+		}
+		if errors.Is(err, context.Canceled) {
+			gg.logger.Debug(ctx, LogLineRunnerExitedWithContextCanceledError)
+			return nil
+		}
+		gg.logger.Error(log.WithError(ctx, err), LogLineRunnerExitedWithError)
+		return err
+	})
+}
+
+// Start starts the runners in the group in the background.
+// Errors are not returned until Wait is called
+// Runners are tied to the passed in context
+func (gg *Group) Start(ctx context.Context) error {
+	if gg.name != "" {
+		ctx = log.WithField(ctx, "runGroup", gg.name)
+	}
+
+	if len(gg.cancelOnSignals) > 0 {
+		ctx, _ = signal.NotifyContext(ctx, gg.cancelOnSignals...)
+		go func() {
+			<-ctx.Done()
+			gg.logger.Info(ctx, "Context canceled by signal")
+		}()
+
+	}
+
+	// Hold the lock until we have
+	// - Created all pending runners
+	// - Marked as running
+	gg.controlMutex.Lock()
+	defer gg.controlMutex.Unlock()
+	if gg.running {
+		return fmt.Errorf("group already triggered")
+	}
+	gg.running = true
+	gg.errGroup, ctx = errgroup.WithContext(ctx)
+	gg.runContext = ctx
+
+	// Forces at least one worker to keep the group open, until 'Wait' is
+	// called, allowing runners to be added after the group has started.
+	gg.holdOpen = make(chan struct{})
+	gg.errGroup.Go(func() error {
+		<-gg.holdOpen
+		return nil
+	})
+
+	for _, rr := range gg.runners {
+		rr := rr
+		gg.startRunner(ctx, rr)
+	}
+
+	gg.logger.Info(ctx, LogLineGroupStarted)
+	return nil
 }
 
 // Run runs the runners in the group until all have exited.
 // If any function returns an error, the context passed to each is canceled.
 // Once a group is triggered with Run, no more functions can be added
 func (gg *Group) Run(ctx context.Context) error {
+	err := gg.Start(ctx)
+	if err != nil {
+		return err
+	}
+	return gg.Wait()
+}
+
+// Wait waits for all runners to exit. If any runner returns an error, the first
+// error is returned.
+// Once Wait is called, no more runners can be added to the group
+func (gg *Group) Wait() error {
 	gg.controlMutex.Lock()
 	defer gg.controlMutex.Unlock()
-	if gg.triggered {
-		return fmt.Errorf("group already triggered")
-	}
-	if gg.name != "" {
-		ctx = log.WithField(ctx, "runGroup", gg.name)
-	}
-	gg.triggered = true
-	gg.logger.Info(ctx, LogLineGroupStarted)
-
-	ctx, cancel := context.WithCancel(ctx)
-
-	if len(gg.cancelOnSignals) > 0 {
-		ctx, _ = signal.NotifyContext(ctx, gg.cancelOnSignals...)
+	if gg.isWaiting {
+		return fmt.Errorf("group is already waiting")
 	}
 
-	var firstError error
-	errorMutex := sync.Mutex{}
+	gg.isWaiting = true
+	close(gg.holdOpen)
 
-	wg := sync.WaitGroup{}
-	for _, rr := range gg.runners {
-		wg.Add(1)
-		ctx := log.WithField(ctx, "runner", rr.name)
-		go func(ctx context.Context, rr *runner) {
-			defer wg.Done()
-			gg.logger.Info(ctx, LogLineRunnerStarted)
-			err := rr.f(ctx)
-			rr.err = err
-			rr.done = true
-			if err != nil {
-				errorMutex.Lock()
-				if firstError == nil {
-					firstError = err
-					cancel()
-				}
-				errorMutex.Unlock()
-				if errors.Is(err, context.Canceled) {
-					gg.logger.Info(ctx, LogLineRunnerExitedWithContextCanceledError)
-				} else {
-					gg.logger.Error(log.WithError(ctx, err), LogLineRunnerExitedWithError)
-				}
-			} else {
-				gg.logger.Info(ctx, LogLineRunnerExited)
-			}
-		}(ctx, rr)
-	}
+	go func() {
+		<-gg.runContext.Done()
+		waiting := sync.Map{}
 
-	wg.Wait()
+		for _, rr := range gg.runners {
+			waiting.Store(rr.name, struct{}{})
+			<-rr.stopped
+			waiting.Delete(rr)
+			waiting.Range(func(key, value interface{}) bool {
+				rr := key.(string)
+				gg.logger.Debug(gg.runContext, "Waiting for runner "+rr)
+				return true
+			})
 
+		}
+		gg.logger.Info(gg.runContext, "All runners exited")
+	}()
+
+	firstError := gg.errGroup.Wait()
 	if firstError != nil {
-		gg.logger.Error(ctx, LogLineGroupExitedWithError)
+		gg.logger.Error(gg.runContext, LogLineGroupExitedWithError)
 	} else {
-		gg.logger.Info(ctx, LogLineGroupExited)
+		gg.logger.Info(gg.runContext, LogLineGroupExited)
 	}
-
-	// In case a runner ran a sub-thread (which is not recommended), we need to
-	// make sure that the context is canceled. Also because the linter
-	// complained.
-	cancel()
 
 	return firstError
 }
