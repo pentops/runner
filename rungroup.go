@@ -88,12 +88,12 @@ func NewGroup(options ...option) *Group {
 // Add registers a function to run when the group is triggered with Run or Start.
 // If the group is already running, the function will be started immediately and
 // added to the pool.
-func (gg *Group) Add(name string, f func(ctx context.Context) error) error {
+func (gg *Group) Add(name string, f func(ctx context.Context) error) {
 	gg.controlMutex.Lock()
 	defer gg.controlMutex.Unlock()
 
 	if gg.isWaiting {
-		return fmt.Errorf("group is already waiting")
+		panic("group is already waiting")
 	}
 
 	runner := &runner{name: name, f: f}
@@ -102,7 +102,6 @@ func (gg *Group) Add(name string, f func(ctx context.Context) error) error {
 		gg.startRunner(gg.runContext, runner)
 	}
 
-	return nil
 }
 
 func (gg *Group) startRunner(ctx context.Context, rr *runner) {

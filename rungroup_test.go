@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/pentops/log.go/log"
@@ -15,6 +16,7 @@ type logEntry struct {
 }
 
 func assertEntries(t testing.TB, got []logEntry, want map[string][]logEntry) {
+	t.Helper()
 
 	gotByRunner := make(map[string][]logEntry)
 	for _, entry := range got {
@@ -98,6 +100,7 @@ func TestContextCancelOnErrors(t *testing.T) {
 		t.Log(level, message, fields)
 		entries = append(entries, logEntry{level, message, fields})
 	})
+	logger.SetLevel(slog.LevelDebug)
 
 	// Create a new group
 	g := NewGroup(WithLogger(logger))
@@ -123,7 +126,7 @@ func TestContextCancelOnErrors(t *testing.T) {
 	assertEntries(t, entries, map[string][]logEntry{
 		"t1": {
 			{level: "INFO", message: LogLineRunnerStarted},
-			{level: "INFO", message: LogLineRunnerExitedWithContextCanceledError},
+			{level: "DEBUG", message: LogLineRunnerExitedWithContextCanceledError},
 		},
 		"t2": {
 			{level: "INFO", message: LogLineRunnerStarted},
