@@ -134,11 +134,6 @@ func (gg *Group) Start(ctx context.Context) error {
 
 	if len(gg.cancelOnSignals) > 0 {
 		ctx, _ = signal.NotifyContext(ctx, gg.cancelOnSignals...)
-		go func() {
-			<-ctx.Done()
-			gg.logger.Info(ctx, "Context canceled by signal")
-		}()
-
 	}
 
 	// Hold the lock until we have
