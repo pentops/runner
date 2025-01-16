@@ -31,6 +31,8 @@ func (pe ParamErrors) Error() string {
 	return out
 }
 
+const envFileFlag = "envfile"
+
 func ParseCombined(rvRaw reflect.Value, args []string) error {
 	rv, err := toStructVal(rvRaw)
 	if err != nil {
@@ -47,9 +49,15 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 	booleans := map[string]struct{}{}
 	flagEnvFields := make([]*field, 0, len(fields))
 
+	hasEnvFileFlag := false
+
 	for _, field := range fields {
 		if field.isBool {
 			booleans[field.flagName] = struct{}{}
+		}
+
+		if field.flagName == envFileFlag {
+			hasEnvFileFlag = true
 		}
 
 		if field.argn != nil {
@@ -69,6 +77,17 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 	flagMap, remainingArgs, err := parseFlags(args, booleans)
 	if err != nil {
 		return err
+	}
+
+	// load the env file IFF it is set AND the struct doesn't have its own.
+	if !hasEnvFileFlag {
+		if envFile, ok := flagMap["envfile"]; ok {
+			delete(flagMap, "envfile")
+			err := LoadEnvFile(envFile)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	dd := &cmdData{
