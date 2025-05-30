@@ -159,8 +159,9 @@ func parseArgs(args []string) (string, []string) {
 }
 
 func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []string) bool {
+	cliName := args[0]
 	if len(args) < 2 {
-		fmt.Fprintf(errOut, "Usage: %s <command> [options]\n", args[0])
+		fmt.Fprintf(errOut, "Usage: %s <command> [options]\n", cliName)
 		cs.printCommands(errOut, "  ")
 		return false
 	}
@@ -176,7 +177,7 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 	mainErr := command.command.Run(ctx, remaining)
 	if mainErr != nil {
 		if helpError := new(HelpError); errors.As(mainErr, helpError) {
-			fmt.Fprintf(errOut, "Usage: %s %s %s\n", args[0], args[1], helpError.Usage)
+			fmt.Fprintf(errOut, "Usage: %s %s %s\n", cliName, commandName, helpError.Usage)
 			for _, line := range helpError.Lines {
 				fmt.Fprintf(errOut, "%s\n", line)
 			}
@@ -202,14 +203,16 @@ func (cs *CommandSet) Run(ctx context.Context, args []string) error {
 		}
 	}
 
-	command, ok := cs.findCommand(args[0])
+	commandName, remaining := parseArgs(args)
+
+	command, ok := cs.findCommand(commandName)
 	if !ok {
 		return HelpError{
 			Lines: cs.listCommands("  "),
 		}
 	}
 
-	mainErr := command.command.Run(ctx, args[1:])
+	mainErr := command.command.Run(ctx, remaining)
 	if mainErr != nil {
 		if helpError := new(HelpError); errors.As(mainErr, helpError) {
 			helpError.Usage = command.name + " " + helpError.Usage
