@@ -26,7 +26,7 @@ func findStructFields(rv reflect.Value) ([]*field, error) {
 
 	fields := make([]*field, 0)
 
-	for i := 0; i < rv.NumField(); i++ {
+	for i := range rv.NumField() {
 		fieldType := rt.Field(i)
 		fieldValue := rv.Field(i)
 		parsed, err := structField(fieldType, fieldValue)
@@ -136,6 +136,15 @@ func structField(inputField reflect.StructField, val reflect.Value) (*field, err
 	return parsed, nil
 
 }
+func (ff *field) ParamDef() ParamDef {
+	return ParamDef{
+		Flag:      ff.flagName,
+		Env:       ff.envName,
+		ArgN:      ff.argn,
+		Remaining: ff.remaining,
+		FieldName: ff.fieldName,
+	}
+}
 
 // SetterFromEnv is used by SetFromString for custom types
 type SetterFromRunner interface {
@@ -145,7 +154,7 @@ type SetterFromRunner interface {
 // SetFromString attempts to translate a string to the given interface. Must be a pointer.
 // Standard Types string, bool, int, int(8-64) float(32, 64), time.Duration and []string.
 // Custom types must have method FromEnvString(string) error
-func SetFromString(fieldInterface interface{}, stringVal string) error {
+func SetFromString(fieldInterface any, stringVal string) error {
 
 	if withSetter, ok := fieldInterface.(SetterFromRunner); ok {
 		return withSetter.FromRunnerString(stringVal)
@@ -240,10 +249,7 @@ func SetFromString(fieldInterface interface{}, stringVal string) error {
 }
 
 type HelpLine struct {
-	FlagName  string
-	EnvName   string
-	ArgN      *int
-	Remaining bool
+	ParamDef
 
 	Description string
 	Default     *string
@@ -252,7 +258,7 @@ type HelpLine struct {
 
 func GetHelpLines(rt reflect.Type) []HelpLine {
 	lines := make([]HelpLine, 0, rt.NumField())
-	for i := 0; i < rt.NumField(); i++ {
+	for i := range rt.NumField() {
 		field := rt.Field(i)
 		tag, err := structField(field, reflect.Value{})
 		if err != nil {
@@ -268,13 +274,10 @@ func GetHelpLines(rt reflect.Type) []HelpLine {
 		}
 
 		lines = append(lines, HelpLine{
-			FlagName:    tag.flagName,
-			EnvName:     tag.envName,
+			ParamDef:    tag.ParamDef(),
 			Description: field.Tag.Get("description"),
 			Default:     tag.defaultVal,
 			Required:    !tag.optional,
-			ArgN:        tag.argn,
-			Remaining:   tag.remaining,
 		})
 	}
 	return lines

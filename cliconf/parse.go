@@ -9,24 +9,34 @@ import (
 	"strings"
 )
 
-type ParamError struct {
+type ParamDef struct {
 	Flag      string
 	Env       string
 	FieldName string
-	Err       error
+	ArgN      *int
+	Remaining bool
+}
+
+type ParamError struct {
+	ParamDef
+	Err error
 }
 
 func (pe ParamError) Error() string {
 	return fmt.Sprintf("Error parsing %s: %s", pe.FieldName, pe.Err)
 }
 
-func (pe ParamError) Name() string {
+func (pe ParamDef) Name() string {
 	if pe.Flag != "" && pe.Env != "" {
 		return fmt.Sprintf("--%s / $%s", pe.Flag, pe.Env)
 	} else if pe.Flag != "" {
 		return fmt.Sprintf("--%s", pe.Flag)
 	} else if pe.Env != "" {
 		return fmt.Sprintf("$%s", pe.Env)
+	} else if pe.ArgN != nil {
+		return fmt.Sprintf("<arg%d>", *pe.ArgN)
+	} else if pe.Remaining {
+		return "<remaining args>"
 	} else if pe.FieldName != "" {
 		return pe.FieldName
 	} else {
@@ -116,10 +126,8 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 			err = setFieldValue(argField, arg)
 			if err != nil {
 				flagErr = append(flagErr, ParamError{
-					Flag:      argField.flagName,
-					Env:       argField.envName,
-					FieldName: argField.fieldName,
-					Err:       err,
+					ParamDef: argField.ParamDef(),
+					Err:      err,
 				})
 			}
 		} else {
@@ -132,8 +140,10 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 			remaining.fieldVal.Set(reflect.ValueOf(remainingArgs))
 		} else if len(remainingArgs) > 0 {
 			flagErr = append(flagErr, ParamError{
-				FieldName: "remaining",
-				Err:       errors.New("too many remaining args"),
+				ParamDef: ParamDef{
+					Remaining: true,
+				},
+				Err: errors.New("too many remaining args"),
 			})
 		}
 	}
@@ -151,10 +161,8 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 			}
 
 			flagErr = append(flagErr, ParamError{
-				Flag:      field.flagName,
-				Env:       field.envName,
-				FieldName: field.fieldName,
-				Err:       errors.New("required"),
+				ParamDef: field.ParamDef(),
+				Err:      errors.New("required"),
 			})
 			continue
 		}
@@ -163,18 +171,18 @@ func ParseCombined(rvRaw reflect.Value, args []string) error {
 		err = setFieldValue(field, stringValue)
 		if err != nil {
 			flagErr = append(flagErr, ParamError{
-				Flag:      field.flagName,
-				Env:       field.envName,
-				FieldName: field.fieldName,
-				Err:       err,
+				ParamDef: field.ParamDef(),
+				Err:      err,
 			})
 		}
 	}
 
 	for k := range dd.flagMap {
 		flagErr = append(flagErr, ParamError{
-			Err:  errors.New("unknown flag"),
-			Flag: k,
+			Err: errors.New("unknown flag"),
+			ParamDef: ParamDef{
+				Flag: k,
+			},
 		})
 	}
 	if len(flagErr) > 0 {

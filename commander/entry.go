@@ -56,20 +56,7 @@ func (cc *Command[C]) helpLines(prefix string) []string {
 			description += fmt.Sprintf(" (default: %s)", *tag.Default)
 		}
 
-		name := ""
-		if tag.FlagName != "" && tag.EnvName != "" {
-			name = fmt.Sprintf("--%s / $%s", tag.FlagName, tag.EnvName)
-		} else if tag.FlagName != "" {
-			name = fmt.Sprintf("--%s", tag.FlagName)
-		} else if tag.EnvName != "" {
-			name = fmt.Sprintf("$%s", tag.EnvName)
-		} else if tag.ArgN != nil {
-			name = fmt.Sprintf("<arg%d>", *tag.ArgN)
-		} else if tag.Remaining {
-			name = "<remaining args>"
-		} else {
-			name = "<unknown>"
-		}
+		name := tag.Name()
 
 		lines = append(lines, []string{name, description})
 	}
@@ -99,18 +86,7 @@ func (cc *Command[C]) Run(ctx context.Context, args []string) error {
 		if paramErrors := new(cliconf.ParamErrors); errors.As(parseError, paramErrors) {
 			lines := make([]string, 0, len(*paramErrors))
 			for _, err := range *paramErrors {
-				var name string
-				if err.Flag != "" && err.Env != "" {
-					name = fmt.Sprintf("--%s / $%s", err.Flag, err.Env)
-				} else if err.Flag != "" {
-					name = fmt.Sprintf("--%s", err.Flag)
-				} else if err.Env != "" {
-					name = fmt.Sprintf("$%s", err.Env)
-				} else if err.FieldName != "" {
-					name = err.FieldName
-				} else {
-					name = "<unknown>"
-				}
+				name := err.Name()
 				lines = append(lines, fmt.Sprintf("  %s : %s", name, err.Err))
 			}
 

@@ -110,7 +110,7 @@ func evenJoin(prefix string, lines [][]string) []string {
 // be the only goroutine running.
 func (cs *CommandSet) RunMain(name, version string) {
 	ctx := context.Background()
-	ctx = log.WithFields(ctx, map[string]interface{}{
+	ctx = log.WithFields(ctx, map[string]any{
 		"app":     name,
 		"version": version,
 	})
@@ -127,6 +127,37 @@ func (cs *CommandSet) RunMain(name, version string) {
 	}
 }
 
+// parseArgs returns the command name and remaining arguments - it moves any
+// --key=value pairs to the start of the args slice, to give the illusion of
+// 'global' flags. However, booleans need to be explicitly set to true, as in
+// --foo=true or --foo false
+func parseArgs(args []string) (string, []string) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	out := make([]string, 0)
+	rem := args[:]
+	for len(rem) > 0 {
+		if !strings.HasPrefix(rem[0], "-") {
+			break
+		}
+		arg := rem[0]
+		rem = rem[1:]
+		out = append(out, arg)
+		if strings.Contains(arg, "=") {
+			// --arg=value
+			continue
+		}
+		// --arg value
+		out = append(out, rem[0])
+		rem = rem[1:]
+	}
+	cmd := rem[0]
+	out = append(out, rem[1:]...)
+	return cmd, out
+
+}
+
 func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []string) bool {
 	if len(args) < 2 {
 		fmt.Fprintf(errOut, "Usage: %s <command> [options]\n", args[0])
@@ -134,7 +165,7 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 		return false
 	}
 
-	commandName := args[1]
+	commandName, remaining := parseArgs(args[1:])
 	command, ok := cs.findCommand(commandName)
 	if !ok {
 		fmt.Fprintf(errOut, "Unknown command: '%s'\n", commandName)
@@ -142,7 +173,7 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 		return false
 	}
 
-	mainErr := command.command.Run(ctx, args[2:])
+	mainErr := command.command.Run(ctx, remaining)
 	if mainErr != nil {
 		if helpError := new(HelpError); errors.As(mainErr, helpError) {
 			fmt.Fprintf(errOut, "Usage: %s %s %s\n", args[0], args[1], helpError.Usage)

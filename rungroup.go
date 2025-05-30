@@ -197,7 +197,7 @@ func (gg *Group) Wait() error {
 			waiting.Store(rr.name, struct{}{})
 			<-rr.stopped
 			waiting.Delete(rr)
-			waiting.Range(func(key, value interface{}) bool {
+			waiting.Range(func(key, value any) bool {
 				rr := key.(string)
 				gg.logger.Debug(gg.runContext, "Waiting for runner "+rr)
 				return true

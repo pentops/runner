@@ -53,8 +53,10 @@ func parseFlags(src []string, booleans map[string]struct{}) (map[string]string, 
 
 		if len(src) == 0 {
 			return nil, nil, ParamErrors{{
-				Flag: arg,
-				Err:  fmt.Errorf("flag has no value"),
+				ParamDef: ParamDef{
+					Flag: arg,
+				},
+				Err: fmt.Errorf("flag has no value"),
 			}}
 		}
 

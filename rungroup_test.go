@@ -12,7 +12,7 @@ import (
 type logEntry struct {
 	level   string
 	message string
-	fields  map[string]interface{}
+	fields  map[string]any
 }
 
 func assertEntries(t testing.TB, got []logEntry, want map[string][]logEntry) {
@@ -52,7 +52,7 @@ func assertEntries(t testing.TB, got []logEntry, want map[string][]logEntry) {
 
 func TestHappyPath(t *testing.T) {
 	entries := []logEntry{}
-	logger := log.NewCallbackLogger(func(level, message string, fields map[string]interface{}) {
+	logger := log.NewCallbackLogger(func(level, message string, fields map[string]any) {
 		t.Log(level, message, fields)
 		entries = append(entries, logEntry{level, message, fields})
 	})
@@ -96,7 +96,7 @@ func TestHappyPath(t *testing.T) {
 func TestContextCancelOnErrors(t *testing.T) {
 
 	entries := []logEntry{}
-	logger := log.NewCallbackLogger(func(level, message string, fields map[string]interface{}) {
+	logger := log.NewCallbackLogger(func(level, message string, fields map[string]any) {
 		t.Log(level, message, fields)
 		entries = append(entries, logEntry{level, message, fields})
 	})
@@ -143,7 +143,7 @@ func TestContextCancelOnErrors(t *testing.T) {
 func TestMultipleErrors(t *testing.T) {
 
 	entries := []logEntry{}
-	logger := log.NewCallbackLogger(func(level, message string, fields map[string]interface{}) {
+	logger := log.NewCallbackLogger(func(level, message string, fields map[string]any) {
 		t.Log(level, message, fields)
 		entries = append(entries, logEntry{level, message, fields})
 	})
