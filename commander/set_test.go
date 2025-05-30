@@ -5,7 +5,6 @@ import (
 )
 
 func TestCLIParse(t *testing.T) {
-
 	for _, tt := range []struct {
 		name        string
 		input       []string
@@ -54,4 +53,3 @@ func TestCLIParse(t *testing.T) {
 
 	}
 }
-
