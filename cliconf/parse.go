@@ -20,6 +20,20 @@ func (pe ParamError) Error() string {
 	return fmt.Sprintf("Error parsing %s: %s", pe.FieldName, pe.Err)
 }
 
+func (pe ParamError) Name() string {
+	if pe.Flag != "" && pe.Env != "" {
+		return fmt.Sprintf("--%s / $%s", pe.Flag, pe.Env)
+	} else if pe.Flag != "" {
+		return fmt.Sprintf("--%s", pe.Flag)
+	} else if pe.Env != "" {
+		return fmt.Sprintf("$%s", pe.Env)
+	} else if pe.FieldName != "" {
+		return pe.FieldName
+	} else {
+		return "<unknown>"
+	}
+}
+
 type ParamErrors []ParamError
 
 func (pe ParamErrors) Error() string {

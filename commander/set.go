@@ -152,7 +152,7 @@ func (cs *CommandSet) runMain(ctx context.Context, errOut io.Writer, args []stri
 			return false
 		}
 		if flagErr := new(cliconf.FlagError); errors.As(mainErr, flagErr) {
-			flagErrString := strings.Replace(flagErr.Error(), "$0", strings.Join(args[0:2], " "), -1)
+			flagErrString := strings.ReplaceAll(flagErr.Error(), "$0", strings.Join(args[0:2], " "))
 			fmt.Fprintln(errOut, flagErrString)
 			return false
 		}

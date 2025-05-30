@@ -6,16 +6,21 @@ import (
 )
 
 type TestConfig struct {
-	Foo string `flag:"foo" env:"FOO" description:"foo description"`
-	Bar string `flag:"bar" env:"BAR" default:"bar" description:"bar description"`
-	Baz bool   `flag:"baz" description:"baz description"`
-	Arg string `flag:",arg0" optional:"true" description:"arg description"`
-	NestedConfig
+	Foo    string `flag:"foo" env:"FOO" description:"foo description"`
+	Bar    string `flag:"bar" env:"BAR" default:"bar" description:"bar description"`
+	Baz    bool   `flag:"baz" description:"baz description"`
+	Arg    string `flag:",arg0" optional:"true" description:"arg description"`
+	Nested NestedConfig
+	NestedAnon
 }
 
 type NestedConfig struct {
 	N1 string `flag:"n1" env:"N1" optional:"true"`
 	N2 bool   `flag:"n2"`
+}
+
+type NestedAnon struct {
+	N3 string `flag:"n3" env:"N3" optional:"true"`
 }
 
 func TestParseEntry(t *testing.T) {
@@ -56,13 +61,16 @@ func TestParseEntry(t *testing.T) {
 		},
 	}, {
 		name: "nested",
-		args: []string{"--foo=foo", "--bar=bar", "--n1=n1", "--n2"},
+		args: []string{"--foo=foo", "--bar=bar", "--n1=n1", "--n2", "--n3=n3"},
 		expected: TestConfig{
 			Foo: "foo",
 			Bar: "bar",
-			NestedConfig: NestedConfig{
+			Nested: NestedConfig{
 				N1: "n1",
 				N2: true,
+			},
+			NestedAnon: NestedAnon{
+				N3: "n3",
 			},
 		},
 	}, {
@@ -94,12 +102,16 @@ func TestParseEntry(t *testing.T) {
 				t.Errorf("Bar: Expected %v, got %v", tc.expected.Bar, gotConfig.Bar)
 			}
 
-			if gotConfig.NestedConfig.N1 != tc.expected.NestedConfig.N1 {
-				t.Errorf("N1: Expected %v, got %v", tc.expected.NestedConfig.N1, gotConfig.NestedConfig.N1)
+			if gotConfig.Nested.N1 != tc.expected.Nested.N1 {
+				t.Errorf("N1: Expected %v, got %v", tc.expected.Nested.N1, gotConfig.Nested.N1)
 			}
 
-			if gotConfig.NestedConfig.N2 != tc.expected.NestedConfig.N2 {
-				t.Errorf("N2: Expected %v, got %v", tc.expected.NestedConfig.N2, gotConfig.NestedConfig.N2)
+			if gotConfig.Nested.N2 != tc.expected.Nested.N2 {
+				t.Errorf("N2: Expected %v, got %v", tc.expected.Nested.N2, gotConfig.Nested.N2)
+			}
+
+			if gotConfig.N3 != tc.expected.N3 {
+				t.Errorf("N3: Expected %v, got %v", tc.expected.N3, gotConfig.N3)
 			}
 
 		})
