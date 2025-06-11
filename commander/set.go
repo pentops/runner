@@ -152,6 +152,9 @@ func parseArgs(args []string) (string, []string) {
 		out = append(out, rem[0])
 		rem = rem[1:]
 	}
+	if len(rem) == 0 {
+		return "", out
+	}
 	cmd := rem[0]
 	out = append(out, rem[1:]...)
 	return cmd, out
