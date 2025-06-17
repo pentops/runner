@@ -149,6 +149,9 @@ func parseArgs(args []string) (string, []string) {
 			continue
 		}
 		// --arg value
+		if len(rem) == 0 {
+			break
+		}
 		out = append(out, rem[0])
 		rem = rem[1:]
 	}
