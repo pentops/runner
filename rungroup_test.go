@@ -15,11 +15,24 @@ type logEntry struct {
 	fields  map[string]any
 }
 
-func assertEntries(t testing.TB, got []logEntry, want map[string][]logEntry) {
+type logEntries []logEntry
+
+func (ll *logEntries) Logger(t testing.TB) log.LogFunc {
+	return log.LogFunc(func(level, message string, attrs []slog.Attr) {
+		t.Log(level, message, attrs)
+		fields := make(map[string]any)
+		for _, attr := range attrs {
+			fields[attr.Key] = attr.Value.Any()
+		}
+		*ll = append(*ll, logEntry{level, message, fields})
+	})
+}
+
+func (ll logEntries) Assert(t testing.TB, want map[string][]logEntry) {
 	t.Helper()
 
 	gotByRunner := make(map[string][]logEntry)
-	for _, entry := range got {
+	for _, entry := range ll {
 		runner, ok := entry.fields["runner"].(string)
 		if !ok {
 			runner = "root"
@@ -51,11 +64,8 @@ func assertEntries(t testing.TB, got []logEntry, want map[string][]logEntry) {
 }
 
 func TestHappyPath(t *testing.T) {
-	entries := []logEntry{}
-	logger := log.NewCallbackLogger(func(level, message string, fields map[string]any) {
-		t.Log(level, message, fields)
-		entries = append(entries, logEntry{level, message, fields})
-	})
+	entries := &logEntries{}
+	logger := log.NewCallbackLogger(entries.Logger(t))
 
 	// Create a new group
 	g := NewGroup(WithLogger(logger))
@@ -77,7 +87,7 @@ func TestHappyPath(t *testing.T) {
 		t.Errorf("Expected no error, got %v", err)
 	}
 
-	assertEntries(t, entries, map[string][]logEntry{
+	entries.Assert(t, map[string][]logEntry{
 		"t1": {
 			{level: "INFO", message: LogLineRunnerStarted},
 			{level: "INFO", message: LogLineRunnerExited},
@@ -95,11 +105,8 @@ func TestHappyPath(t *testing.T) {
 
 func TestContextCancelOnErrors(t *testing.T) {
 
-	entries := []logEntry{}
-	logger := log.NewCallbackLogger(func(level, message string, fields map[string]any) {
-		t.Log(level, message, fields)
-		entries = append(entries, logEntry{level, message, fields})
-	})
+	entries := &logEntries{}
+	logger := log.NewCallbackLogger(entries.Logger(t))
 	logger.SetLevel(slog.LevelDebug)
 
 	// Create a new group
@@ -123,7 +130,7 @@ func TestContextCancelOnErrors(t *testing.T) {
 		t.Errorf("Expected exit error, got %v", err)
 	}
 
-	assertEntries(t, entries, map[string][]logEntry{
+	entries.Assert(t, map[string][]logEntry{
 		"t1": {
 			{level: "INFO", message: LogLineRunnerStarted},
 			{level: "DEBUG", message: LogLineRunnerExitedWithContextCanceledError},
@@ -142,11 +149,8 @@ func TestContextCancelOnErrors(t *testing.T) {
 
 func TestMultipleErrors(t *testing.T) {
 
-	entries := []logEntry{}
-	logger := log.NewCallbackLogger(func(level, message string, fields map[string]any) {
-		t.Log(level, message, fields)
-		entries = append(entries, logEntry{level, message, fields})
-	})
+	entries := &logEntries{}
+	logger := log.NewCallbackLogger(entries.Logger(t))
 
 	// Create a new group
 	g := NewGroup(WithLogger(logger))
@@ -171,7 +175,7 @@ func TestMultipleErrors(t *testing.T) {
 		t.Errorf("Expected error, got nil")
 	}
 
-	assertEntries(t, entries, map[string][]logEntry{
+	entries.Assert(t, map[string][]logEntry{
 		"t1": {
 			{level: "INFO", message: LogLineRunnerStarted},
 			{level: "ERROR", message: LogLineRunnerExitedWithError},
